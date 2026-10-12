@@ -78,8 +78,8 @@ To compile the firmware yourself (including the CMSIS-DAP speed optimizations an
 Clone the **`jtagprobe-new`** branch directly and initialize submodules:
 
 ```bash
-git clone -b jtagprobe-new https://github.com/dst202/JTAGprobe.git
-cd JTAGprobe
+git clone -b jtagprobe-new https://github.com/dan-maio/JTAGProbe_new.git
+cd JTAGProbe_new
 git submodule update --init --recursive
 ```
 
