@@ -1,7 +1,7 @@
 # CMSIS-DAP JTAG/SWD Performance Analysis & Optimization Guide
 ## For JTAGprobe on Raspberry Pi Pico (RP2040 / RP2350)
 
-**Author:** Antigravity AI  
+**Author:** Antigravity AI & D.M.
 **Date:** October 2026  
 **Target Repository:** `dst202/JTAGprobe`  
 **Applicable Hardware:** Raspberry Pi Pico (RP2040) / Raspberry Pi Pico 2 (RP2350)
