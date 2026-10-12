@@ -7,7 +7,7 @@
 #include "DAP_config.h"
 #include "DAP.h"
 
-#if true
+#if false
 #define probe_info(format,args...) \
 do { \
 	vTaskSuspendAll(); \
@@ -19,7 +19,7 @@ do { \
 #endif
 
 
-#if true
+#if false
 #define probe_debug(format,args...) \
 do { \
 	vTaskSuspendAll(); \
@@ -30,7 +30,7 @@ do { \
 #define probe_debug(format,...) ((void)0)
 #endif
 
-#if true
+#if false
 #define probe_dump(format,args...)\
 do { \
 	vTaskSuspendAll(); \

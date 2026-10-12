@@ -82,8 +82,9 @@ char * dap_cmd_string[] = {
 };
 
 
-uint16_t dap_edpt_open(uint8_t __unused rhport, tusb_desc_interface_t const *itf_desc, uint16_t max_len)
+uint16_t dap_edpt_open(uint8_t rhport, tusb_desc_interface_t const *itf_desc, uint16_t max_len)
 {
+	_rhport = rhport;
 
 	TU_VERIFY(TUSB_CLASS_VENDOR_SPECIFIC == itf_desc->bInterfaceClass &&
 			DAP_INTERFACE_SUBCLASS == itf_desc->bInterfaceSubClass &&
@@ -152,7 +153,7 @@ bool dap_edpt_xfer_cb(uint8_t __unused rhport, uint8_t ep_addr, xfer_result_t re
 			// so we account for this by only setting wasEmpty to true if the next callback will empty the buffer
 			if(!USBResponseBuffer.wasEmpty)
 			{
-				usbd_edpt_xfer(rhport, ep_addr, RD_SLOT_PTR(USBResponseBuffer), (uint16_t) _resp_len);
+				usbd_edpt_xfer(rhport, ep_addr, RD_SLOT_PTR(USBResponseBuffer), USBResponseBuffer.resp_len[RD_IDX(USBResponseBuffer)]);
 				USBResponseBuffer.wasEmpty = (USBResponseBuffer.rptr + 1) == USBResponseBuffer.wptr;
 			}
 
@@ -249,12 +250,14 @@ void dap_thread(void *ptr)
 			if(buffer_empty(&USBResponseBuffer))
 			{
 				memcpy(WR_SLOT_PTR(USBResponseBuffer), DAPResponseBuffer, (uint16_t) _resp_len);
+				USBResponseBuffer.resp_len[WR_IDX(USBResponseBuffer)] = (uint16_t) _resp_len;
 				USBResponseBuffer.wptr++;
 
 				usbd_edpt_xfer(_rhport, _in_ep_addr, RD_SLOT_PTR(USBResponseBuffer), (uint16_t) _resp_len);
 			} else {
 
 				memcpy(WR_SLOT_PTR(USBResponseBuffer), DAPResponseBuffer, (uint16_t) _resp_len);
+				USBResponseBuffer.resp_len[WR_IDX(USBResponseBuffer)] = (uint16_t) _resp_len;
 				USBResponseBuffer.wptr++;
 
 				// The In callback needs to check this flag to know when to queue up the next buffer.

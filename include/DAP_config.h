@@ -97,7 +97,7 @@ This information includes:
 /// This configuration settings is used to optimize the communication performance with the
 /// debugger and depends on the USB peripheral. For devices with limited RAM or USB buffer the
 /// setting can be reduced (valid range is 1 .. 255).
-#define DAP_PACKET_COUNT        2U              ///< Specifies number of packets buffered.
+#define DAP_PACKET_COUNT        4U              ///< Specifies number of packets buffered.
 
 /// Indicate that UART Serial Wire Output (SWO) trace is available.
 /// This information is returned by the command \ref DAP_Info as part of <b>Capabilities</b>.
@@ -309,6 +309,14 @@ of the same I/O port. The following SWDIO I/O Pin functions are provided:
 #define DAP_SWJ_nTRST                   15       // nTRST
 #define DAP_SWJ_nRESET                  16       // nRESET
 
+ // DAP SWJ Pin Masks for atomic Single-Cycle I/O (SIO) operations
+#define MASK_SWCLK_TCK                  (1U << DAP_SWJ_SWCLK_TCK)
+#define MASK_SWDIO_TMS                  (1U << DAP_SWJ_SWDIO_TMS)
+#define MASK_TDI                        (1U << DAP_SWJ_TDI)
+#define MASK_TDO                        (1U << DAP_SWJ_TDO)
+#define MASK_nTRST                      (1U << DAP_SWJ_nTRST)
+#define MASK_nRESET                     (1U << DAP_SWJ_nRESET)
+
 
 
 
@@ -421,27 +429,21 @@ __STATIC_INLINE void PORT_OFF (void) {
 \return Current status of the SWCLK/TCK DAP hardware I/O pin.
 */
 __STATIC_FORCEINLINE uint32_t PIN_SWCLK_TCK_IN  (void) {
-
-    return gpio_get(DAP_SWJ_SWCLK_TCK);
-    }
+    return (gpio_get_all() >> DAP_SWJ_SWCLK_TCK) & 1U;
+}
 
 /** SWCLK/TCK I/O pin: Set Output to High.
 Set the SWCLK/TCK DAP hardware I/O pin to high level.
 */
 __STATIC_FORCEINLINE void     PIN_SWCLK_TCK_SET (void) {
-
-  gpio_put(DAP_SWJ_SWCLK_TCK, true);
+    gpio_set_mask(MASK_SWCLK_TCK);
 }
 
 /** SWCLK/TCK I/O pin: Set Output to Low.
 Set the SWCLK/TCK DAP hardware I/O pin to low level.
 */
 __STATIC_FORCEINLINE void     PIN_SWCLK_TCK_CLR (void) {
-
-
-  gpio_put(DAP_SWJ_SWCLK_TCK, false);
-
-
+    gpio_clr_mask(MASK_SWCLK_TCK);
 }
 
 
@@ -451,28 +453,21 @@ __STATIC_FORCEINLINE void     PIN_SWCLK_TCK_CLR (void) {
 \return Current status of the SWDIO/TMS DAP hardware I/O pin.
 */
 __STATIC_FORCEINLINE uint32_t PIN_SWDIO_TMS_IN  (void) {
-
-    return gpio_get(DAP_SWJ_SWDIO_TMS);
-
-
+    return (gpio_get_all() >> DAP_SWJ_SWDIO_TMS) & 1U;
 }
 
 /** SWDIO/TMS I/O pin: Set Output to High.
 Set the SWDIO/TMS DAP hardware I/O pin to high level.
 */
 __STATIC_FORCEINLINE void     PIN_SWDIO_TMS_SET (void) {
-
-  gpio_put(DAP_SWJ_SWDIO_TMS, true);
-
+    gpio_set_mask(MASK_SWDIO_TMS);
 }
 
 /** SWDIO/TMS I/O pin: Set Output to Low.
 Set the SWDIO/TMS DAP hardware I/O pin to low level.
 */
 __STATIC_FORCEINLINE void     PIN_SWDIO_TMS_CLR (void) {
-
-  gpio_put(DAP_SWJ_SWDIO_TMS, false);
-
+    gpio_clr_mask(MASK_SWDIO_TMS);
 }
 
 
@@ -486,37 +481,17 @@ __STATIC_FORCEINLINE void     PIN_SWDIO_TMS_CLR (void) {
 \return Current status of the SWDIO DAP hardware I/O pin.
 */
 __STATIC_FORCEINLINE uint32_t PIN_SWDIO_IN      (void) {
-  
-  //read pin input value
-
-    return gpio_get(DAP_SWJ_SWDIO_TMS);
-
+    return (gpio_get_all() >> DAP_SWJ_SWDIO_TMS) & 1U;
 }
 
 /** SWDIO I/O pin: Set Output (used in SWD mode only).
 \param bit Output value for the SWDIO DAP hardware I/O pin.
 */
 __STATIC_FORCEINLINE void     PIN_SWDIO_OUT     (uint32_t bit) {
-
-  /*To implement this  Set Output
-
-    if bit =1
-    then 
-      OE         = 0
-
-    if bit =0
-    then  
-      OE         = 1
-  */
-
-    if(bit & 0x1U)
-    {
-        gpio_put(DAP_SWJ_SWDIO_TMS,true);
-
-    }
-    else
-    {
-        gpio_put(DAP_SWJ_SWDIO_TMS,false);
+    if (bit & 1U) {
+        gpio_set_mask(MASK_SWDIO_TMS);
+    } else {
+        gpio_clr_mask(MASK_SWDIO_TMS);
     }
 }
 
@@ -525,12 +500,7 @@ Configure the SWDIO DAP hardware I/O pin to output mode. This function is
 called prior \ref PIN_SWDIO_OUT function calls.
 */
 __STATIC_FORCEINLINE void     PIN_SWDIO_OUT_ENABLE  (void) {
-
-  // To implement this Output Enable
-  //set PU 1
-
-  gpio_set_dir(DAP_SWJ_SWDIO_TMS,true);    
-
+    gpio_set_dir_out_masked(MASK_SWDIO_TMS);
 }
 
 /** SWDIO I/O pin: Switch to Input mode (used in SWD mode only).
@@ -538,11 +508,7 @@ Configure the SWDIO DAP hardware I/O pin to input mode. This function is
 called prior \ref PIN_SWDIO_IN function calls.
 */
 __STATIC_FORCEINLINE void     PIN_SWDIO_OUT_DISABLE (void) {
-
-//To implement Output Disable
-//Set  OE 0,PU 0
-
-  gpio_set_dir(DAP_SWJ_SWDIO_TMS,false);
+    gpio_set_dir_in_masked(MASK_SWDIO_TMS);
 }
 
 
@@ -554,19 +520,18 @@ __STATIC_FORCEINLINE void     PIN_SWDIO_OUT_DISABLE (void) {
 \return Current status of the TDI DAP hardware I/O pin.
 */
 __STATIC_FORCEINLINE uint32_t PIN_TDI_IN  (void) {
-
-    return gpio_get(DAP_SWJ_TDI);
-
-
+    return (gpio_get_all() >> DAP_SWJ_TDI) & 1U;
 }
 
 /** TDI I/O pin: Set Output.
 \param bit Output value for the TDI DAP hardware I/O pin.
 */
 __STATIC_FORCEINLINE void     PIN_TDI_OUT (uint32_t bit) {
-
-    gpio_put_masked(1U << DAP_SWJ_TDI, bit << DAP_SWJ_TDI);
-
+    if (bit & 1U) {
+        gpio_set_mask(MASK_TDI);
+    } else {
+        gpio_clr_mask(MASK_TDI);
+    }
 }
 
 
@@ -576,10 +541,7 @@ __STATIC_FORCEINLINE void     PIN_TDI_OUT (uint32_t bit) {
 \return Current status of the TDO DAP hardware I/O pin.
 */
 __STATIC_FORCEINLINE uint32_t PIN_TDO_IN  (void) {
-
-    return gpio_get(DAP_SWJ_TDO);
-
-
+    return (gpio_get_all() >> DAP_SWJ_TDO) & 1U;
 }
 
 
@@ -607,8 +569,7 @@ __STATIC_FORCEINLINE void     PIN_nTRST_OUT  (uint32_t bit) {
 \return Current status of the nRESET DAP hardware I/O pin.
 */
 __STATIC_FORCEINLINE uint32_t PIN_nRESET_IN  (void) {
-
-  return gpio_get(DAP_SWJ_nRESET);
+  return (gpio_get_all() >> DAP_SWJ_nRESET) & 1U;
 }
 
 /** nRESET I/O pin: Set Output.
@@ -618,13 +579,11 @@ __STATIC_FORCEINLINE uint32_t PIN_nRESET_IN  (void) {
 */
 __STATIC_FORCEINLINE void     PIN_nRESET_OUT (uint32_t bit) {
   if (bit) {
-        gpio_set_dir(DAP_SWJ_nRESET, GPIO_IN); // Set pin direction to input
-        gpio_set_dir_out_masked(1U << DAP_SWJ_nRESET); // Set output enable for pin
-    } else {
-        gpio_set_dir_in_masked(1U << DAP_SWJ_nRESET); // Clear output enable for pin
-        gpio_set_dir(DAP_SWJ_nRESET, GPIO_OUT); // Set pin direction to output
-    }
-
+    gpio_set_dir_in_masked(MASK_nRESET); // Open-drain release (input with pull-up)
+  } else {
+    gpio_clr_mask(MASK_nRESET);          // Drive low
+    gpio_set_dir_out_masked(MASK_nRESET);
+  }
 }
 
 
