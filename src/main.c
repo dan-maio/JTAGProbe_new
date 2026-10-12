@@ -39,6 +39,7 @@
 #include "DAP.h"
 #include "board_pico_config.h"
 #include "DAP_config.h"
+#include "cdc_uart.h"
 
 
 
@@ -66,8 +67,9 @@ static uint8_t RxDataBuffer[CFG_TUD_HID_EP_BUFSIZE];
 
 #define THREADED 1
 
-#define TUD_TASK_PRIO  (tskIDLE_PRIORITY + 1)
-#define DAP_TASK_PRIO  (tskIDLE_PRIORITY + 2)
+#define UART_TASK_PRIO (tskIDLE_PRIORITY + 3)
+#define TUD_TASK_PRIO  (tskIDLE_PRIORITY + 2)
+#define DAP_TASK_PRIO  (tskIDLE_PRIORITY + 1)
 
 
 
@@ -126,7 +128,7 @@ int main(void) {
     board_init();
     usb_serial_init();
     tusb_init();
-    stdio_uart_init();
+    cdc_uart_init();
 
 
    
@@ -136,6 +138,7 @@ int main(void) {
 
     if (THREADED) {
         /* UART needs to preempt USB as if we don't, characters get lost */
+        xTaskCreate(cdc_thread, "UART", configMINIMAL_STACK_SIZE, NULL, UART_TASK_PRIO, &uart_taskhandle);
         xTaskCreate(usb_thread, "TUD", configMINIMAL_STACK_SIZE, NULL, TUD_TASK_PRIO, &tud_taskhandle);
         /* Lowest priority thread is debug - need to shuffle buffers before we can toggle swd... */
         xTaskCreate(dap_thread, "DAP", configMINIMAL_STACK_SIZE, NULL, DAP_TASK_PRIO, &dap_taskhandle);

@@ -20,8 +20,7 @@ add_executable(JTAGprobe
         src/main.c
         src/usb_descriptors.c
         src/tusb_edpt_handler.c
-        
-     
+        src/cdc_uart.c
 )
 
 target_sources(JTAGprobe PRIVATE

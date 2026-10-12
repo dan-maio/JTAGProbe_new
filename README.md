@@ -19,6 +19,8 @@ The following is **GPIO pinout** for JTAG/SWD
 | TDO        | 21      |
 | nTRST      | 15      |
 | nRESET     | 16      |
+| UART_TXD   | 12      |
+| UART_RXD   | 13      |
 
 You can download **UF2** file or download entire code and build it as mentioned below.
 
