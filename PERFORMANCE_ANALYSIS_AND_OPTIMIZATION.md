@@ -380,8 +380,53 @@ cmsis_dap_backend bulk
 
 ---
 
-## 7. Conclusion
+---
+
+## 7. Integrated USB CDC-ACM UART Bridge
+
+In addition to CMSIS-DAP performance improvements, an integrated hardware UART bridge was implemented to provide a dedicated serial console without requiring extra USB-to-UART dongles.
+
+### 7.1 Architecture & USB Composite Device Structure
+The probe enumerates as a USB Composite Device with three distinct interfaces:
+1. **Interface 0 (Vendor Specific Bulk, Class 0xFF):**
+   - Transport for **CMSIS-DAP v2** commands (`DAP_OUT_EP_NUM 0x04`, `DAP_IN_EP_NUM 0x85`).
+   - Handled directly by host debuggers (**OpenOCD**, **pyOCD**, **probe-rs**) via `libusb` / WinUSB.
+   - Does **not** register as a serial/tty device.
+2. **Interfaces 1 & 2 (CDC Communication & CDC Data):**
+   - Implements standard **USB CDC-ACM** virtual serial port (`/dev/ttyACM0` on Linux, `COMx` on Windows).
+   - Handled by host kernel CDC drivers (`cdc_acm`).
+
+> [!NOTE]
+> On Linux, the udev subsystem tags `/dev/ttyACM0` with the device-level product string (`"JTAG probe on Pico (CMSIS-DAP)"`). `/dev/ttyACM0` is the serial console port wired to **GPIO 12 (TX)** and **GPIO 13 (RX)**.
+
+### 7.2 Hardware Mapping & FreeRTOS Task Scheduling
+- **Hardware Peripheral:** RP2040 `uart0`
+- **Pins:** GPIO 12 (`PROBE_UART_TX`, Pico Header Pin 16) and GPIO 13 (`PROBE_UART_RX`, Pico Header Pin 17).
+- **FreeRTOS Priority Balancing:**
+  - `UART_TASK_PRIO` (`tskIDLE_PRIORITY + 3`) &mdash; Highest priority to preempt USB and prevent hardware UART FIFO overruns at high line rates.
+  - `TUD_TASK_PRIO` (`tskIDLE_PRIORITY + 2`) &mdash; Handles TinyUSB event dispatching and endpoint buffers.
+  - `DAP_TASK_PRIO` (`tskIDLE_PRIORITY + 1`) &mdash; Executes CMSIS-DAP command interpretation and bit-banging.
+- **Dynamic Line Coding:** Automatically tracks host terminal baud rate (e.g. 9600, 115200, 921600), parity, stop bits, and data bit configurations via `tud_cdc_line_coding_cb`.
+
+### 7.3 Full Pinout Reference
+
+| Signal | RP2040 GPIO | Pico Header Pin | Role / Direction | Function |
+| :--- | :---: | :---: | :--- | :--- |
+| **SWCLK / TCK** | **GPIO 19** | **Pin 25** | Output (Probe $\rightarrow$ Target) | SWD Clock / JTAG Clock |
+| **SWDIO / TMS** | **GPIO 14** | **Pin 19** | Bi-directional | SWD Data / JTAG Mode Select |
+| **TDI** | **GPIO 18** | **Pin 24** | Output (Probe $\rightarrow$ Target) | JTAG Test Data In |
+| **TDO** | **GPIO 21** | **Pin 27** | Input (Probe $\leftarrow$ Target) | JTAG Test Data Out |
+| **nTRST** | **GPIO 15** | **Pin 20** | Output (Probe $\rightarrow$ Target) | JTAG Reset (optional) |
+| **nRESET** | **GPIO 16** | **Pin 21** | Open-drain (Target Reset) | Target Hardware Reset |
+| **UART_TXD** | **GPIO 12** | **Pin 16** | Output (Probe $\rightarrow$ Target) | Serial TX to Target RX (`uart0`) |
+| **UART_RXD** | **GPIO 13** | **Pin 17** | Input (Probe $\leftarrow$ Target) | Serial RX from Target TX (`uart0`) |
+| **GND** | **GND** | **Pins 3, 8, 13, 18, 23, 28, 38** | Ground | Common Ground |
+
+---
+
+## 8. Conclusion
 
 The 2-minute download time is caused almost entirely by **synchronous debug logging (`probe_info`) blocking the CPU for 5.8 ms per packet over a 115,200 baud UART while the FreeRTOS scheduler is suspended**.
 
-Applying **Patch 1** alone provides an immediate **28× speedup** (reducing 120s down to ~4s). Applying **Patches 2 and 3** brings the download time down to **under 1 second**, fully solving the performance problem.
+Applying **Patch 1** alone provides an immediate **28× speedup** (reducing 120s down to ~4s). Applying **Patches 2 and 3** brings the download time down to **under 1 second**, fully solving the performance problem while maintaining a clean, responsive hardware UART bridge on `/dev/ttyACM0`.
+

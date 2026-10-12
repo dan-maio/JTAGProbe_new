@@ -1,28 +1,65 @@
 # JTAGprobe
-A fork of opensource version of **debugprobe** built on RASPBERRY pico.It is extendedand  modified to work with JTAG and SWD. This does not use  FIFO and PIO functionality of **debugprobe** but uses  standard ARM CMSIS-DAP.
+A high-performance CMSIS-DAP v2 JTAG and SWD debug probe firmware with an integrated USB CDC-ACM UART serial bridge for the **Raspberry Pi Pico (RP2040)** and **Raspberry Pi Pico 2 (RP2350)**.
 
-This supports both **JTAG & SWD** for debugging using OpenOCD, Hence the name **JTAGprobe**
+---
 
-This project supports the following boards:
-- **Raspberry Pi Pico** (RP2040)
-- **Raspberry Pi Pico 2** (RP2350)
+## Features
 
-___
-The following is **GPIO pinout** for JTAG/SWD 
+- **JTAG & SWD Debugging:** Full CMSIS-DAP v2 bulk transport support for OpenOCD, pyOCD, probe-rs, and Keil MDK.
+- **Hardware USB CDC-ACM UART Bridge:** Virtual COM port (`/dev/ttyACM0` on Linux, `COMx` on Windows) bridged directly to target UART on GPIO 12/13.
+- **High Performance:**
+  - Zero blocking debug logging overhead on DAP transfers.
+  - Single-cycle RP2040 SIO atomic register operations for high-speed bit-banging.
+  - Multi-packet ring buffer (4 slots) preventing USB NAK back-offs.
+- **Dynamic Baud Rate:** Automatically adjusts hardware UART baud rate, parity, stop bits, and data bits when changed by the host terminal software.
+- **Supported Hardware:**
+  - Raspberry Pi Pico (RP2040)
+  - Raspberry Pi Pico 2 (RP2350)
 
+---
 
-| GPIO       | Pinout  |
-| --------   | ------- |
-| SWCLK_TCK  | 19      |
-| SWDIO_TMS  | 14      |
-| TDI        | 18      |
-| TDO        | 21      |
-| nTRST      | 15      |
-| nRESET     | 16      |
-| UART_TXD   | 12      |
-| UART_RXD   | 13      |
+## Pinout Mapping
 
-You can download **UF2** file or download entire code and build it as mentioned below.
+Connect the probe to your target board as follows:
+
+| Signal | RP2040 GPIO | Pico Header Pin | Direction / Role | Description |
+| :--- | :---: | :---: | :--- | :--- |
+| **SWCLK / TCK** | **GPIO 19** | **Pin 25** | Output (Probe $\rightarrow$ Target) | SWD Clock / JTAG Test Clock |
+| **SWDIO / TMS** | **GPIO 14** | **Pin 19** | Bi-directional | SWD Data I/O / JTAG Test Mode Select |
+| **TDI** | **GPIO 18** | **Pin 24** | Output (Probe $\rightarrow$ Target) | JTAG Test Data In |
+| **TDO** | **GPIO 21** | **Pin 27** | Input (Probe $\leftarrow$ Target) | JTAG Test Data Out |
+| **nTRST** | **GPIO 15** | **Pin 20** | Output (Probe $\rightarrow$ Target) | JTAG Test Reset (optional) |
+| **nRESET** | **GPIO 16** | **Pin 21** | Open-drain (Target Reset) | System Reset |
+| **UART_TXD** | **GPIO 12** | **Pin 16** | Output (Probe $\rightarrow$ Target) | Target UART RX (from Pico `uart0`) |
+| **UART_RXD** | **GPIO 13** | **Pin 17** | Input (Probe $\leftarrow$ Target) | Target UART TX (to Pico `uart0`) |
+| **GND** | **GND** | **Pin 3, 8, 13, 18, 23, 28, 38** | Ground | Common Ground Reference |
+
+---
+
+## USB Interfaces & Serial Port
+
+When plugged into a host PC, JTAGprobe enumerates as a composite USB device:
+
+1. **Interface 0 (Vendor Specific Bulk):**
+   - CMSIS-DAP v2 interface used by OpenOCD, pyOCD, and debuggers via `libusb`.
+   - *Note:* CMSIS-DAP is **not** a serial/tty device and will not appear under `/dev/tty*`.
+2. **Interfaces 1 & 2 (CDC-ACM UART Bridge):**
+   - Creates **`/dev/ttyACM0`** on Linux (or `COMx` on Windows).
+   - In system logs (`dmesg`, `/dev/serial/by-id/`), `/dev/ttyACM0` inherits the USB product string `JTAG probe on Pico (CMSIS-DAP)`. **`/dev/ttyACM0` is the serial console port connected to GPIO 12 & 13.**
+
+### Opening the UART Console
+
+Use any serial terminal application (e.g. `picocom`, `minicom`, `screen`, PuTTY):
+
+```bash
+# Using picocom at 115200 baud
+picocom -b 115200 /dev/ttyACM0
+
+# Using minicom
+minicom -b 115200 -o -D /dev/ttyACM0
+```
+
+---
 
 # Images of debugging PICO with another PICO and Bluepill
 
