@@ -368,55 +368,23 @@ cmsis_dap_backend bulk
 
 ---
 
-## 6. Analysis: Can Overclocking the RP2040 to 200 MHz Help?
-
-### 6.1 Clock Domain Separation
-The RP2040 micro-architecture divides clock trees into independent PLL domains:
-1. **System Clock (`clk_sys`):** Defaults to 125 MHz. Can be safely overclocked to 200 MHz, 250 MHz, or higher with a modest core voltage increase (`VREG_VOLTAGE_1_15`).
-2. **USB Reference Clock (`clk_usb`):** Strictly locked at **48.0 MHz**. The internal USB 1.1 Full-Speed transceiver (12 Mbps) requires a steady 48 MHz clock derived from the 12 MHz crystal oscillator (XOSC) via `PLL_USB`.
-
-### 6.2 Where 200 MHz Overclocking Helps
-- **Bit-Banging GPIO Loops:** In `DAP.c`, `SWD_TransferSlow` and `JTAG_Transfer` toggle pins in tight software loops. Raising `clk_sys` from 125 MHz to 200 MHz (+60%) shortens instruction cycle execution times, allowing higher maximum clock bit-rates when the probe is CPU-bound.
-- **CMSIS-DAP Command Parsing:** Decoding DAP commands (`DAP_ExecuteCommand`) and moving data packets into memory buffers finishes ~35% faster.
-
-### 6.3 Where 200 MHz Overclocking Does NOT Help
-- **Synchronous UART Logging (The Original Bottleneck):** The 120-second delay was caused by `probe_info` blocking at 115,200 baud. Because UART baud rates are fixed by physical line rate timing, overclocking the CPU to 200 MHz would save less than 0.1% of the blocking time.
-- **USB Full-Speed Latency:** USB 1.1 frames occur once every 1.0 ms. Round-trip request/response cycles over the USB wire cannot be accelerated by core CPU frequency.
-- **Target Chip Limitations:** Most target Cortex-M debug ports (SWD/JTAG) have a hardware limit between 1 MHz and 10 MHz. The probe must not exceed the target's supported debug frequency.
-
-### 6.4 Practical Verdict & How to Enable
-Overclocking to 200 MHz provides a modest **10% to 20% gain** in raw bit-banging throughput, but is secondary to removing the blocking UART logging and expanding the packet queue.
-
-If you wish to test a 200 MHz overclock, add the following to `src/main.c` before `board_init()`:
-```c
-#include "hardware/vreg.h"
-#include "hardware/clocks.h"
-
-// In main(), before board_init():
-vreg_set_voltage(VREG_VOLTAGE_1_15);
-set_sys_clock_khz(200000, true);
-```
-
----
-
-## 7. Performance Benchmark Comparison
+## 6. Performance Benchmark Comparison
 
 | Configuration State | 100 KB Download Time | Effective Throughput | Relative Speedup |
 | :--- | :---: | :---: | :---: |
 | **Baseline** (Debug logging active, 64B packets) | **120.0 s** | **0.85 KB/s** | **1.0×** |
-| **Step 1** (UART logging disabled @ 125 MHz) | **4.2 s** | **24.4 KB/s** | **28×** |
-| **Step 1 + Step 2** (+ SIO bit-banging @ 125 MHz) | **1.9 s** | **53.9 KB/s** | **63×** |
-| **Step 1 + 2 + 3** (+ 4-packet ring buffer @ 125 MHz) | **0.9 s** | **113.8 KB/s** | **133×** |
-| **Step 1 + 2 + 3 + Overclock** (All patches @ 200 MHz) | **0.7 s** | **146.3 KB/s** | **171×** |
+| **Step 1 Applied** (UART logging disabled) | **4.2 s** | **24.4 KB/s** | **28×** |
+| **Step 1 + Step 2** (+ SIO bit-banging) | **1.9 s** | **53.9 KB/s** | **63×** |
+| **Step 1 + 2 + 3** (+ 4-packet ring buffer pipelining) | **0.9 s** | **113.8 KB/s** | **133×** |
 | **Future PIO State Machine** (Hardware JTAG/SWD) | **< 0.15 s** | **> 700 KB/s** | **> 800×** |
 
 ---
 
-## 8. Integrated USB CDC-ACM UART Bridge
+## 7. Integrated USB CDC-ACM UART Bridge
 
 In addition to CMSIS-DAP performance improvements, an integrated hardware UART bridge was implemented to provide a dedicated serial console without requiring extra USB-to-UART dongles.
 
-### 8.1 Architecture & USB Composite Device Structure
+### 7.1 Architecture & USB Composite Device Structure
 The probe enumerates as a USB Composite Device with three distinct interfaces:
 1. **Interface 0 (Vendor Specific Bulk, Class 0xFF):**
    - Transport for **CMSIS-DAP v2** commands (`DAP_OUT_EP_NUM 0x04`, `DAP_IN_EP_NUM 0x85`).
@@ -429,7 +397,7 @@ The probe enumerates as a USB Composite Device with three distinct interfaces:
 > [!NOTE]
 > On Linux, the udev subsystem tags `/dev/ttyACM0` with the device-level product string (`"JTAG probe on Pico (CMSIS-DAP)"`). `/dev/ttyACM0` is the serial console port wired to **GPIO 12 (TX)** and **GPIO 13 (RX)**.
 
-### 8.2 Hardware Mapping & FreeRTOS Task Scheduling
+### 7.2 Hardware Mapping & FreeRTOS Task Scheduling
 - **Hardware Peripheral:** RP2040 `uart0`
 - **Pins:** GPIO 12 (`PROBE_UART_TX`, Pico Header Pin 16) and GPIO 13 (`PROBE_UART_RX`, Pico Header Pin 17).
 - **FreeRTOS Priority Balancing:**
@@ -438,7 +406,7 @@ The probe enumerates as a USB Composite Device with three distinct interfaces:
   - `DAP_TASK_PRIO` (`tskIDLE_PRIORITY + 1`) &mdash; Executes CMSIS-DAP command interpretation and bit-banging.
 - **Dynamic Line Coding:** Automatically tracks host terminal baud rate (e.g. 9600, 115200, 921600), parity, stop bits, and data bit configurations via `tud_cdc_line_coding_cb`.
 
-### 8.3 Full Pinout Reference
+### 7.3 Full Pinout Reference
 
 | Signal | RP2040 GPIO | Pico Header Pin | Role / Direction | Function |
 | :--- | :---: | :---: | :--- | :--- |
@@ -454,7 +422,7 @@ The probe enumerates as a USB Composite Device with three distinct interfaces:
 
 ---
 
-## 9. Conclusion
+## 8. Conclusion
 
 The 2-minute download time is caused almost entirely by **synchronous debug logging (`probe_info`) blocking the CPU for 5.8 ms per packet over a 115,200 baud UART while the FreeRTOS scheduler is suspended**.
 

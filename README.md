@@ -69,58 +69,62 @@ minicom -b 115200 -o -D /dev/ttyACM0
 
 
 
-# Hacking
+# Building from Source
 
-For the purpose of making changes or studying of the code, you may want to compile the code yourself.
+To compile the firmware yourself (including the CMSIS-DAP speed optimizations and the integrated UART CDC bridge):
 
-First, clone the repository:
-```
-git clone https://github.com/dst202/JTAGprobe
+### 1. Clone the Repository (Branch: `jtagprobe-new`)
+
+Clone the **`jtagprobe-new`** branch directly and initialize submodules:
+
+```bash
+git clone -b jtagprobe-new https://github.com/dst202/JTAGprobe.git
 cd JTAGprobe
-```
-Initialize and update the submodules:
-```
 git submodule update --init --recursive
 ```
 
-## Prerequisites
+*(If you already have a local clone, switch to the branch: `git checkout jtagprobe-new`)*
 
-Before building, ensure you have the following installed:
+### 2. Prerequisites
 
-- **Raspberry Pi Pico SDK** - Set `PICO_SDK_PATH` environment variable
+Ensure you have the following installed and configured:
+
+- **Raspberry Pi Pico SDK** &mdash; Set the `PICO_SDK_PATH` environment variable:
   ```bash
   export PICO_SDK_PATH=/path/to/pico-sdk
   ```
 - **CMake** (3.12 or higher)
-- **GCC ARM Embedded Toolchain**
+- **GCC ARM Embedded Toolchain** (`arm-none-eabi-gcc`)
+- **Build tool** (`make` or `ninja`)
 
-## Building
+### 3. Building the Firmware
 
-### Option 1: Build for Raspberry Pi Pico (RP2040)
+#### Option 1: Build for Raspberry Pi Pico (RP2040)
 
 ```bash
 mkdir -p build/pico && cd build/pico
 cmake ../.. -DPICO_BOARD=pico
-make
+make -j$(nproc)
 ```
+The output binary is: **`build/pico/JTAGprobe.uf2`**
 
-The output will be `build/pico/JTAGprobe.uf2`
-
-### Option 2: Build for Raspberry Pi Pico 2 (RP2350)
+#### Option 2: Build for Raspberry Pi Pico 2 (RP2350)
 
 ```bash
 mkdir -p build/pico2 && cd build/pico2
 cmake ../.. -DPICO_BOARD=pico2
-make
+make -j$(nproc)
 ```
+The output binary is: **`build/pico2/JTAGprobe.uf2`**
 
-The output will be `build/pico2/JTAGprobe.uf2`
+---
 
 ## Flashing the Firmware
 
-1. **Hold the BOOTSEL button** on your Pico/Pico2
-2. **Connect to USB** while holding BOOTSEL (the device will appear as RPI-RP2 drive)
+1. **Hold the BOOTSEL button** on your Pico / Pico 2 board.
+2. **Plug the board into your computer's USB port** while holding BOOTSEL (the device mounts as a mass-storage drive named `RPI-RP2`).
 3. **Copy the appropriate `.uf2` file** to the drive:
    - For Pico (RP2040): `build/pico/JTAGprobe.uf2`
    - For Pico 2 (RP2350): `build/pico2/JTAGprobe.uf2`
-4. The device will automatically reboot and run the firmware
+4. The Pico will automatically reboot and start running JTAGprobe with CMSIS-DAP v2 and USB CDC UART on GPIO 12/13.
+
