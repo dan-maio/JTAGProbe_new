@@ -1,9 +1,9 @@
 # CMSIS-DAP JTAG/SWD Performance Analysis & Optimization Guide
 ## For JTAGprobe on Raspberry Pi Pico (RP2040 / RP2350)
 
-**Author:** Antigravity AI & D.M.
+**Author:** Antigravity AI & D.M.  
 **Date:** October 2026  
-**Target Repository:** `dst202/JTAGprobe`  
+**Target Repository:** `dan-maio/JTAGProbe_new` (upstream: `dst202/JTAGprobe`)  
 **Applicable Hardware:** Raspberry Pi Pico (RP2040) / Raspberry Pi Pico 2 (RP2350)
 
 ---
@@ -12,6 +12,7 @@
 
 ### 1.1 The Problem
 When using **JTAGprobe** as a CMSIS-DAP debug probe with OpenOCD, downloading firmware or reading memory is extraordinarily slow:
+
 $$\mathbf{100\text{ KB in }\approx 120\text{ seconds}}\quad (\approx \mathbf{850\text{ bytes/sec}})$$
 
 A typical Full-Speed USB CMSIS-DAP probe should achieve between **50 KB/s and 250 KB/s** in software bit-banging mode, and **500 KB/s to 1.5+ MB/s** when hardware-accelerated with PIO. At 850 B/s, the probe is running **100× to 300× slower than its expected performance**.
@@ -48,13 +49,17 @@ do { \
 ```
 
 In `src/tusb_edpt_handler.c` (lines 225–244), `probe_info` is executed **twice for every DAP command**:
+
 1. When a command packet arrives:
+
    ```c
    probe_info("%u %u DAP cmd %s len %02x\n",
               USBRequestBuffer.wptr, USBRequestBuffer.rptr,
               dap_cmd_string[DAPRequestBuffer[0]], DAPRequestBuffer[1]);
    ```
+
 2. When the response is generated:
+
    ```c
    probe_info("%u %u DAP resp %s\n",
               USBResponseBuffer.wptr, USBResponseBuffer.rptr,
@@ -65,13 +70,17 @@ In `src/tusb_edpt_handler.c` (lines 225–244), `probe_info` is executed **twice
 - In `src/main.c`, `stdio_uart_init()` directs `printf` to UART0 at **115,200 baud**.
 - The two format strings total approximately **67 characters** per DAP packet.
 - At 115,200 baud (10 bits per character: 1 start + 8 data + 1 stop):
+
   $$\text{Transmission Time} = \frac{67 \times 10}{115{,}200} \approx \mathbf{5.82\text{ ms per transaction}}$$
+
 - During this entire ~5.8 ms window, `vTaskSuspendAll()` **suspends the FreeRTOS scheduler**. No other thread or USB task can run.
 - When flashing or memory downloading with OpenOCD:
   - Flash programming algorithms run on the target microcontroller.
   - OpenOCD continuously polls the target status register (`DHCSR`) and peripheral flags to monitor progress.
   - A 100 KB flash download produces **15,000 to 20,000 DAP transactions** (data blocks + register writes + status polling).
+
   $$\text{Total UART Blocking Time} = 20{,}000 \times 5.82\text{ ms} = \mathbf{116.4\text{ seconds}}$$
+
 - If no serial terminal is actively reading UART0, the hardware TX FIFO (32 bytes) is perpetually full, guaranteeing that `printf` will block until every single byte shifts out onto the pin.
 
 ---
@@ -85,15 +94,18 @@ In `include/DAP_config.h` (lines 94–95):
 ```
 
 In CMSIS-DAP, memory write operations use `DAP_TransferBlock` (command `0x06`):
+
 - Command header: 5 bytes (`Command ID`, `DAP Index`, `Transfer Count [15:0]`, `Transfer Request`).
 - Alignment padding: 3 bytes.
 - Usable data payload per packet: $64 - 5 - 3 = \mathbf{56\text{ bytes}}$ (14 words of 32 bits).
 
 #### Latency Calculation
 To download 100 KB (102,400 bytes):
+
 $$\text{Total Packets} = \frac{102{,}400}{56} \approx \mathbf{1{,}828\text{ packets}}$$
 
 Over USB Full-Speed (12 Mbps), each transaction involves:
+
 1. Host schedules Bulk OUT token.
 2. Device receives and processes packet.
 3. Host schedules Bulk IN token.
@@ -101,9 +113,7 @@ Over USB Full-Speed (12 Mbps), each transaction involves:
 
 On typical operating system USB stacks (Linux `usbfs` or Windows `WinUSB`), round-trip turnaround is 1 to 2 USB frames (1–2 ms). 1,828 round trips create 2 to 4 seconds of pure USB scheduling overhead, excluding execution time.
 
-By contrast, CMSIS-DAP v2 (Bulk endpoint) allows `DAP_PACKET_SIZE` of **512** or **1024** bytes:
-- At 512 bytes: $512 - 5 - 3 = 504\text{ bytes}$ (126 words) per packet $\rightarrow$ **204 packets** (9× reduction).
-- At 1024 bytes: $1024 - 5 - 3 = 1016\text{ bytes}$ (254 words) per packet $\rightarrow$ **101 packets** (18× reduction).
+> **Note on USB Packet Sizing:** While CMSIS-DAP v2 on USB High-Speed (480 Mbps) devices supports 512-byte or 1024-byte packets, the RP2040 hardware USB 1.1 controller is strictly Full-Speed (12 Mbps), where the maximum bulk endpoint packet size is 64 bytes. Thus, throughput improvements on the RP2040 cannot come from exceeding 64-byte endpoint packets; instead, they come from eliminating USB round-trip idle penalties via multi-packet queue pipelining (Bottleneck #3).
 
 ---
 
@@ -123,8 +133,9 @@ bool buffer_full(buffer_t *buffer) {
 ```
 
 In a circular buffer of length $N = 2$ using standard modulo arithmetic:
-- When empty: `wptr = 0`, `rptr = 0` $\rightarrow (0 + 1) \% 2 = 1 \neq 0$ (not full).
-- When 1 packet is queued: `wptr = 1`, `rptr = 0` $\rightarrow (1 + 1) \% 2 = 0 == rptr$ (**FULL**).
+
+- When empty: `wptr = 0`, `rptr = 0` → $(0 + 1) \% 2 = 1 \neq 0$ (not full).
+- When 1 packet is queued: `wptr = 1`, `rptr = 0` → $(1 + 1) \% 2 = 0 == rptr$ (**FULL**).
 
 The buffer capacity is strictly **1 packet**. There is zero multi-packet buffering.
 
@@ -188,9 +199,9 @@ In `src/DAP.c`:
 |  Milestone 2: 100 KB in ~1.5 to 2.5s (~50 KB/s)             |
 +-------------------------------------------------------------+
                               |
-                              v  [Step 3: 512B Packets & Queue]|
+                              v  [Step 3: 4-Packet Pipelining]
 +-------------------------------------------------------------+
-|  Milestone 3: 100 KB in < 0.8s (> 125 KB/s)                |
+|  Milestone 3: 100 KB in ~0.9s (~114 KB/s)                   |
 +-------------------------------------------------------------+
 ```
 
@@ -317,8 +328,9 @@ Expand packet queue from 2 (effective capacity 1) to 4 packets:
 #define DAP_PACKET_COUNT        4U              ///< 4 packets queued for zero-NAK pipelining
 ```
 
-**File:** `src/tusb_edpt_handler.h`
+**File:** `src/tusb_edpt_handler.h`  
 Add per-slot response length tracking:
+
 ```c
 typedef struct {
     uint8_t data[DAP_PACKET_COUNT][DAP_PACKET_SIZE];
@@ -330,8 +342,9 @@ typedef struct {
 } buffer_t;
 ```
 
-**File:** `src/tusb_edpt_handler.c`
+**File:** `src/tusb_edpt_handler.c`  
 In `dap_thread`, store `_resp_len` in the buffer slot:
+
 ```c
 uint16_t resp_len = (uint16_t) DAP_ExecuteCommand(DAPRequestBuffer, DAPResponseBuffer);
 
@@ -385,17 +398,19 @@ cmsis_dap_backend bulk
 In addition to CMSIS-DAP performance improvements, an integrated hardware UART bridge was implemented to provide a dedicated serial console without requiring extra USB-to-UART dongles.
 
 ### 7.1 Architecture & USB Composite Device Structure
+
 The probe enumerates as a USB Composite Device with three distinct interfaces:
+
 1. **Interface 0 (Vendor Specific Bulk, Class 0xFF):**
    - Transport for **CMSIS-DAP v2** commands (`DAP_OUT_EP_NUM 0x04`, `DAP_IN_EP_NUM 0x85`).
    - Handled directly by host debuggers (**OpenOCD**, **pyOCD**, **probe-rs**) via `libusb` / WinUSB.
    - Does **not** register as a serial/tty device.
+
 2. **Interfaces 1 & 2 (CDC Communication & CDC Data):**
    - Implements standard **USB CDC-ACM** virtual serial port (`/dev/ttyACM0` on Linux, `COMx` on Windows).
    - Handled by host kernel CDC drivers (`cdc_acm`).
 
-> [!NOTE]
-> On Linux, the udev subsystem tags `/dev/ttyACM0` with the device-level product string (`"JTAG probe on Pico (CMSIS-DAP)"`). `/dev/ttyACM0` is the serial console port wired to **GPIO 12 (TX)** and **GPIO 13 (RX)**.
+> **Note:** On Linux, the udev subsystem tags `/dev/ttyACM0` with the device-level product string (`"JTAG probe on Pico (CMSIS-DAP)"`). `/dev/ttyACM0` is the serial console port wired to **GPIO 12 (TX)** and **GPIO 13 (RX)**.
 
 ### 7.2 Hardware Mapping & FreeRTOS Task Scheduling
 - **Hardware Peripheral:** RP2040 `uart0`
@@ -410,14 +425,14 @@ The probe enumerates as a USB Composite Device with three distinct interfaces:
 
 | Signal | RP2040 GPIO | Pico Header Pin | Role / Direction | Function |
 | :--- | :---: | :---: | :--- | :--- |
-| **SWCLK / TCK** | **GPIO 19** | **Pin 25** | Output (Probe $\rightarrow$ Target) | SWD Clock / JTAG Clock |
+| **SWCLK / TCK** | **GPIO 19** | **Pin 25** | Output (Probe → Target) | SWD Clock / JTAG Clock |
 | **SWDIO / TMS** | **GPIO 14** | **Pin 19** | Bi-directional | SWD Data / JTAG Mode Select |
-| **TDI** | **GPIO 18** | **Pin 24** | Output (Probe $\rightarrow$ Target) | JTAG Test Data In |
-| **TDO** | **GPIO 21** | **Pin 27** | Input (Probe $\leftarrow$ Target) | JTAG Test Data Out |
-| **nTRST** | **GPIO 15** | **Pin 20** | Output (Probe $\rightarrow$ Target) | JTAG Reset (optional) |
+| **TDI** | **GPIO 18** | **Pin 24** | Output (Probe → Target) | JTAG Test Data In |
+| **TDO** | **GPIO 21** | **Pin 27** | Input (Probe ← Target) | JTAG Test Data Out |
+| **nTRST** | **GPIO 15** | **Pin 20** | Output (Probe → Target) | JTAG Reset (optional) |
 | **nRESET** | **GPIO 16** | **Pin 21** | Open-drain (Target Reset) | Target Hardware Reset |
-| **UART_TXD** | **GPIO 12** | **Pin 16** | Output (Probe $\rightarrow$ Target) | Serial TX to Target RX (`uart0`) |
-| **UART_RXD** | **GPIO 13** | **Pin 17** | Input (Probe $\leftarrow$ Target) | Serial RX from Target TX (`uart0`) |
+| **UART_TXD** | **GPIO 12** | **Pin 16** | Output (Probe → Target) | Serial TX to Target RX (`uart0`) |
+| **UART_RXD** | **GPIO 13** | **Pin 17** | Input (Probe ← Target) | Serial RX from Target TX (`uart0`) |
 | **GND** | **GND** | **Pins 3, 8, 13, 18, 23, 28, 38** | Ground | Common Ground |
 
 ---
